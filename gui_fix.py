@@ -134,149 +134,113 @@ def convert_file(source: Path, destination: Path) -> int:
 
 
 class ConverterApp:
-    WIDTH = 760
-    HEIGHT = 570
-    TOP_COLOR = (29, 43, 56)
-    BOTTOM_COLOR = (17, 49, 60)
-    CARD_COLOR = "#253847"
-    TEXT_COLOR = "#f0f6f8"
-    MUTED_COLOR = "#a9bdc7"
-    ACCENT_COLOR = "#54cdbb"
+    TOP_COLOR = (28, 44, 57)
+    BOTTOM_COLOR = (23, 61, 73)
+    CARD_COLOR = "#263b4a"
+    TEXT_COLOR = "#f2f7f8"
+    MUTED_COLOR = "#b4c8cf"
+    FIELD_COLOR = "#172c38"
 
     def __init__(self, root):
         self.root = root
         root.title("ProPresenter 6 to TXT")
-        root.geometry(f"{self.WIDTH}x{self.HEIGHT}")
-        root.minsize(620, 570)
+        root.geometry("760x570")
+        root.resizable(False, False)
 
-        self.canvas = tk.Canvas(root, highlightthickness=0, borderwidth=0)
-        self.canvas.pack(fill="both", expand=True)
-        self.canvas.bind("<Configure>", self.draw_interface)
+        self.background = tk.Canvas(root, bg="#1c2c39", highlightthickness=0)
+        self.background.pack(fill="both", expand=True)
+        self.background.bind("<Configure>", self.draw_gradient)
 
-        entry_style = {
-            "bg": "#192b39",
-            "fg": self.TEXT_COLOR,
-            "insertbackground": self.TEXT_COLOR,
-            "relief": "flat",
-            "borderwidth": 0,
-            "highlightthickness": 0,
-            "font": ("Helvetica Neue", 12),
-        }
-        self.src_entry = tk.Entry(self.canvas, **entry_style)
-        self.dst_entry = tk.Entry(self.canvas, **entry_style)
-        self.status = "Ready to convert .pro6 files"
+        header = tk.Frame(root, bg="#1c2c39")
+        header.place(x=40, y=30, width=680, height=88)
+        tk.Label(
+            header, text="ProPresenter 6  →  TXT", bg="#1c2c39",
+            fg=self.TEXT_COLOR, font=("Helvetica Neue", 25, "bold"), anchor="w",
+        ).place(x=0, y=0, width=680, height=44)
+        tk.Label(
+            header, text="Convert presentations into text files for FreeShow",
+            bg="#1c2c39", fg=self.MUTED_COLOR,
+            font=("Helvetica Neue", 12), anchor="w",
+        ).place(x=1, y=46, width=679, height=26)
 
-    @staticmethod
-    def rounded_rectangle(canvas, x1, y1, x2, y2, radius, fill, tag=None):
-        points = [
-            x1 + radius, y1, x2 - radius, y1, x2, y1,
-            x2, y1 + radius, x2, y2 - radius, x2, y2,
-            x2 - radius, y2, x1 + radius, y2, x1, y2,
-            x1, y2 - radius, x1, y1 + radius, x1, y1,
-        ]
-        return canvas.create_polygon(
-            points, smooth=True, splinesteps=24, fill=fill, outline="", tags=tag
+        card = tk.Frame(
+            root, bg=self.CARD_COLOR, highlightthickness=1,
+            highlightbackground="#45606c",
+        )
+        card.place(x=40, y=139, width=680, height=290)
+        self.src_entry = self.add_folder_field(
+            card, 20, "1  SOURCE FOLDER", "Folder containing your original .pro6 files"
+        )
+        tk.Frame(card, bg="#45606c").place(x=28, y=143, width=624, height=1)
+        self.dst_entry = self.add_folder_field(
+            card, 158, "2  OUTPUT FOLDER", "Folder where new .txt files will be saved"
         )
 
-    def draw_button(self, x1, y1, x2, y2, label, fill, hover, command, tag):
-        shape = self.rounded_rectangle(self.canvas, x1, y1, x2, y2, 12, fill, tag)
-        self.canvas.create_text(
-            (x1 + x2) / 2, (y1 + y2) / 2, text=label,
-            fill=self.TEXT_COLOR, font=("Helvetica Neue", 12, "bold"), tags=tag,
+        self.make_button(
+            root, "Convert files", 40, 458, 205, 48,
+            "#24877b", "#30a193", self.start_conversion,
         )
-        self.canvas.tag_bind(tag, "<Button-1>", lambda _event: command())
-        self.canvas.tag_bind(tag, "<Enter>", lambda _event: self.button_hover(shape, hover))
-        self.canvas.tag_bind(tag, "<Leave>", lambda _event: self.button_hover(shape, fill))
+        self.make_button(
+            root, "Reset", 258, 458, 115, 48,
+            "#3c5866", "#4d6b79", self.reset,
+        )
+        self.status_label = tk.Label(
+            root, text="Ready to convert .pro6 files", bg="#173d49",
+            fg=self.MUTED_COLOR, font=("Helvetica Neue", 11), anchor="w",
+        )
+        self.status_label.place(x=40, y=525, width=680, height=25)
+        root.after_idle(self.draw_gradient)
 
-    def button_hover(self, shape, color):
-        self.canvas.itemconfigure(shape, fill=color)
-
-    def draw_interface(self, _event=None):
-        canvas = self.canvas
-        canvas.delete("all")
-        width = max(canvas.winfo_width(), 620)
-        height = max(canvas.winfo_height(), self.HEIGHT)
+    def draw_gradient(self, _event=None):
+        canvas = self.background
+        canvas.delete("gradient")
+        height = max(canvas.winfo_height(), 1)
+        width = max(canvas.winfo_width(), 1)
         for y in range(height):
             fraction = y / max(height - 1, 1)
             color = tuple(
                 round(top + (bottom - top) * fraction)
                 for top, bottom in zip(self.TOP_COLOR, self.BOTTOM_COLOR)
             )
-            canvas.create_line(0, y, width, y, fill="#{:02x}{:02x}{:02x}".format(*color))
+            canvas.create_line(
+                0, y, width, y, fill="#{:02x}{:02x}{:02x}".format(*color),
+                tags="gradient",
+            )
 
-        left = (width - min(680, width - 48)) / 2
-        right = width - left
-        canvas.create_text(
-            width / 2, 58, text="ProPresenter 6  →  TXT",
-            fill=self.TEXT_COLOR, font=("Helvetica Neue", 27, "bold"),
+    def add_folder_field(self, parent, top, title, description):
+        tk.Label(
+            parent, text=title, bg=self.CARD_COLOR, fg=self.TEXT_COLOR,
+            font=("Helvetica Neue", 12, "bold"), anchor="w",
+        ).place(x=28, y=top, width=624, height=26)
+        tk.Label(
+            parent, text=description, bg=self.CARD_COLOR, fg=self.MUTED_COLOR,
+            font=("Helvetica Neue", 11), anchor="w",
+        ).place(x=28, y=top + 27, width=624, height=22)
+        entry = tk.Entry(
+            parent, bg=self.FIELD_COLOR, fg=self.TEXT_COLOR,
+            insertbackground=self.TEXT_COLOR, font=("Helvetica Neue", 12),
+            relief="flat", borderwidth=0, highlightthickness=0,
         )
-        canvas.create_text(
-            width / 2, 96, text="Convert presentations into text files for FreeShow",
-            fill=self.MUTED_COLOR, font=("Helvetica Neue", 12),
+        entry.place(x=32, y=top + 63, width=474, height=40)
+        self.make_button(
+            parent, "Browse…", 522, top + 62, 128, 42,
+            "#3c6570", "#4e7a84", lambda: self.browse(entry),
         )
-        self.rounded_rectangle(canvas, left, 138, right, 430, 22, self.CARD_COLOR)
+        return entry
 
-        self.draw_folder_row(
-            left, right, 175, "1", "SOURCE FOLDER", "Your original .pro6 files",
-            self.src_entry, lambda: self.browse(self.src_entry), "browse_source",
+    def make_button(self, parent, text, x, y, width, height, color, hover, command):
+        button = tk.Label(
+            parent, text=text, bg=color, fg=self.TEXT_COLOR,
+            font=("Helvetica Neue", 12, "bold"), cursor="hand2",
         )
-        canvas.create_line(left + 34, 279, right - 34, 279, fill="#3b5360")
-        self.draw_folder_row(
-            left, right, 304, "2", "OUTPUT FOLDER", "Where the new .txt files will be saved",
-            self.dst_entry, lambda: self.browse(self.dst_entry), "browse_output",
-        )
-
-        self.draw_button(
-            left, 458, left + 210, 506, "Convert files", "#237b72", "#2b9689",
-            self.start_conversion, "convert_button",
-        )
-        self.draw_button(
-            left + 224, 458, left + 352, 506, "Reset", "#394e5b", "#4b6471",
-            self.reset, "reset_button",
-        )
-        self.status_item = canvas.create_text(
-            left, 538, anchor="w", text=self.status,
-            fill=self.MUTED_COLOR, font=("Helvetica Neue", 11),
-        )
-
-    def draw_folder_row(self, left, right, top, number, title, subtitle, entry, browse, tag):
-        canvas = self.canvas
-        canvas.create_oval(
-            left + 33, top, left + 61, top + 28,
-            fill="#2a6f6c", outline="",
-        )
-        canvas.create_text(
-            left + 47, top + 14, text=number,
-            fill=self.TEXT_COLOR, font=("Helvetica Neue", 11, "bold"),
-        )
-        canvas.create_text(
-            left + 75, top + 6, anchor="nw", text=title,
-            fill=self.TEXT_COLOR, font=("Helvetica Neue", 12, "bold"),
-        )
-        canvas.create_text(
-            left + 75, top + 29, anchor="nw", text=subtitle,
-            fill=self.MUTED_COLOR, font=("Helvetica Neue", 11),
-        )
-        field_left = left + 34
-        field_top = top + 67
-        button_left = right - 145
-        self.rounded_rectangle(
-            canvas, field_left, field_top, button_left - 12, field_top + 42,
-            10, "#192b39",
-        )
-        canvas.create_window(
-            field_left + 15, field_top + 21, window=entry, anchor="w",
-            width=button_left - field_left - 43, height=29,
-        )
-        self.draw_button(
-            button_left, field_top, right - 34, field_top + 42,
-            "Browse…", "#3a5a68", "#4c7180", browse, tag,
-        )
+        button.place(x=x, y=y, width=width, height=height)
+        button.bind("<Button-1>", lambda _event: command())
+        button.bind("<Enter>", lambda _event: button.configure(bg=hover))
+        button.bind("<Leave>", lambda _event: button.configure(bg=color))
+        return button
 
     def set_status(self, text):
-        self.status = text
-        if hasattr(self, "status_item"):
-            self.canvas.itemconfigure(self.status_item, text=text)
+        self.status_label.configure(text=text)
 
     def browse(self, entry):
         path = filedialog.askdirectory(parent=self.root)
