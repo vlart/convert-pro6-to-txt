@@ -18,6 +18,105 @@ SKIPPED_GROUPS = {
 CONTROL_WORD = re.compile(r"([a-zA-Z]+)(-?\d+)? ?")
 
 
+class _RtfReader:
+    """Read the visible text in one RTF field."""
+
+    def __init__(self, source: str, codepage: str):
+        self.source = source
+        self.codepage = codepage
+        self.position = 0
+        self.output = []
+        self.groups = [{"hidden": False, "uc": 1}]
+        self.fallback = 0
+
+    def read(self) -> str:
+        while self.position < len(self.source):
+            char = self.source[self.position]
+            if char == "{":
+                self.groups.append(self.groups[-1].copy())
+                self.position += 1
+            elif char == "}":
+                if len(self.groups) > 1:
+                    self.groups.pop()
+                self.position += 1
+            elif char == "\\":
+                self._read_escape()
+            else:
+                self._read_character(char)
+                self.position += 1
+        return "".join(self.output)
+
+    def _emit(self, char: str):
+        if self.fallback:
+            self.fallback -= 1
+        elif not self.groups[-1]["hidden"]:
+            self.output.append(char)
+
+    def _read_character(self, char: str):
+        if char in "\r\n":
+            if self.fallback:
+                self.fallback -= 1
+            return
+        if ord(char) >= 128:
+            char = bytes([ord(char)]).decode(self.codepage, errors="replace")
+        self._emit(char)
+
+    def _read_escape(self):
+        self.position += 1
+        if self.position >= len(self.source):
+            self._emit("\\")
+            return
+
+        symbol = self.source[self.position]
+        if symbol in "\\{}":
+            self._emit(symbol)
+            self.position += 1
+        elif symbol == "'" and self.position + 2 < len(self.source):
+            self._read_hex_character()
+        elif symbol in "\r\n":
+            if not self.groups[-1]["hidden"]:
+                self.output.append("\n")
+            self.position += 1
+            if symbol == "\r" and self.position < len(self.source) and self.source[self.position] == "\n":
+                self.position += 1
+        elif symbol == "*":
+            self.groups[-1]["hidden"] = True
+            self.position += 1
+        else:
+            self._read_control_word()
+
+    def _read_hex_character(self):
+        digits = self.source[self.position + 1:self.position + 3]
+        try:
+            char = bytes.fromhex(digits).decode(self.codepage)
+        except (ValueError, LookupError, UnicodeError):
+            char = "\ufffd"
+        self._emit(char)
+        self.position += 3
+
+    def _read_control_word(self):
+        match = CONTROL_WORD.match(self.source, self.position)
+        if not match:
+            self.position += 1
+            return
+        word, number = match.group(1), match.group(2)
+        self.position = match.end()
+        group = self.groups[-1]
+        if word in SKIPPED_GROUPS:
+            group["hidden"] = True
+        elif word == "uc" and number is not None:
+            group["uc"] = max(0, int(number))
+        elif word == "u" and number is not None:
+            if not group["hidden"]:
+                self.output.append(chr(int(number) & 0xFFFF))
+            self.fallback = group["uc"]
+        elif not group["hidden"]:
+            if word in ("par", "line"):
+                self.output.append("\n")
+            elif word == "tab":
+                self.output.append("\t")
+
+
 def rtf_to_text(data: bytes) -> str:
     """Extract visible text from the RTF used in .pro6 RTFData fields."""
     source = data.decode("latin-1")
@@ -28,80 +127,9 @@ def rtf_to_text(data: bytes) -> str:
     except LookupError:
         codepage = "cp1252"
 
-    output = []
-    stack = [{"hidden": False, "uc": 1}]
-    fallback = 0
-    i = 0
-    while i < len(source):
-        char = source[i]
-        if char == "{":
-            stack.append(stack[-1].copy())
-            i += 1
-            continue
-        if char == "}":
-            if len(stack) > 1:
-                stack.pop()
-            i += 1
-            continue
-        if char == "\\" and i + 1 < len(source):
-            next_char = source[i + 1]
-            if next_char in "\\{}":
-                if fallback:
-                    fallback -= 1
-                elif not stack[-1]["hidden"]:
-                    output.append(next_char)
-                i += 2
-                continue
-            if next_char == "'" and i + 3 < len(source):
-                try:
-                    value = bytes.fromhex(source[i + 2:i + 4]).decode(codepage)
-                except (ValueError, LookupError, UnicodeError):
-                    value = "\ufffd"
-                if fallback:
-                    fallback -= 1
-                elif not stack[-1]["hidden"]:
-                    output.append(value)
-                i += 4
-                continue
-            if next_char in "\r\n":
-                if not stack[-1]["hidden"]:
-                    output.append("\n")
-                i += 2
-                if next_char == "\r" and i < len(source) and source[i] == "\n":
-                    i += 1
-                continue
-            if next_char == "*":
-                stack[-1]["hidden"] = True
-                i += 2
-                continue
-            match = CONTROL_WORD.match(source, i + 1)
-            if match:
-                word, number = match.group(1), match.group(2)
-                i = match.end()
-                if word in SKIPPED_GROUPS:
-                    stack[-1]["hidden"] = True
-                elif word == "uc" and number is not None:
-                    stack[-1]["uc"] = max(0, int(number))
-                elif word == "u" and number is not None:
-                    if not stack[-1]["hidden"]:
-                        output.append(chr(int(number) & 0xFFFF))
-                    fallback = stack[-1]["uc"]
-                elif not stack[-1]["hidden"]:
-                    if word in ("par", "line"):
-                        output.append("\n")
-                    elif word == "tab":
-                        output.append("\t")
-                continue
-            i += 2
-            continue
-        if fallback:
-            fallback -= 1
-        elif not stack[-1]["hidden"] and char not in "\r\n":
-            output.append(char if ord(char) < 128 else bytes([ord(char)]).decode(codepage, errors="replace"))
-        i += 1
-
+    raw_text = _RtfReader(source, codepage).read()
     # RTF Unicode escapes are UTF-16 code units; combine surrogate pairs.
-    text = "".join(output).encode("utf-16-le", errors="surrogatepass").decode("utf-16-le", errors="replace")
+    text = raw_text.encode("utf-16-le", errors="surrogatepass").decode("utf-16-le", errors="replace")
     lines = [line.strip() for line in text.splitlines()]
     text = "\n".join(lines).strip()
     text = re.sub(r"\n{3,}", "\n\n", text)
