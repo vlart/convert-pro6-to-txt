@@ -4,6 +4,7 @@ import base64
 import binascii
 from pathlib import Path
 import re
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import xml.etree.ElementTree as ET
@@ -312,6 +313,12 @@ class ConverterApp:
 
 
 if __name__ == "__main__":
+    if sys.platform == "darwin" and tk.TkVersion < 8.6:
+        raise SystemExit(
+            "The system Tcl/Tk 8.5 cannot display this interface on macOS. "
+            "Run it with a Python build using Tcl/Tk 8.6 or newer "
+            "(for example: python3.13 gui_fix.py)."
+        )
     root = tk.Tk()
     ConverterApp(root)
     root.mainloop()
