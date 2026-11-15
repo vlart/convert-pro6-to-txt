@@ -25,4 +25,4 @@ python3.13 -c "import tkinter; print(tkinter.TkVersion)"
 
 In the app, choose the source folder containing `.pro6` files and the output folder for `.txt` files. Existing output files require confirmation before replacement.
 
-The converter uses only Python's standard library. `fix.py` is an older command-line prototype with hard-coded folder paths.
+The converter uses only Python's standard library.
